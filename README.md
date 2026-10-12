@@ -12,7 +12,7 @@ I independently direct the product, UX, technical decisions, testing, and iterat
 
 ## The experience
 
-Tab-Splits is two-sided. The organizer does the work once; every guest gets a tab they can understand, trust, and settle. Most of the design effort went to the guest side (see [decision 3](#product-and-technical-decisions)).
+Tab-Splits serves two different people with two distinct experiences. The organizer does the work once. Each guest needs a tab they can understand, check, and settle. Most of the design effort went to the guest experience (see [decision 3](#product-and-technical-decisions)).
 
 **For the organizer**
 
@@ -24,22 +24,22 @@ Tab-Splits is two-sided. The organizer does the work once; every guest gets a ta
 **For each guest**
 
 1. **Open the link.** No app, account, or password.
-2. **Pick your name** and land on your own tab, or browse the whole bill.
-3. **Check it line by line:**
+2. **Pick your name** to personalize the view, or just browse. This isn't a login: names aren't verified, and anyone with the link sees the same bill.
+3. **Inspect your share and the whole bill:**
    - your items;
    - your portion of anything shared (¼ of the appetizer, ⅔ of the margaritas);
    - your share of tax and tip;
    - your total.
 
-   The full bill and the original receipt photo are a tap away.
-4. **Settle in one tap.** If the person who paid has added a Venmo handle, *Pay @payer on Venmo* opens Venmo with the amount and a note already filled in.
+   The full bill and the original receipt photo are one tap away, so anyone can check how their number was reached.
+4. **Pay in Venmo.** If the person who paid has added a Venmo handle, a button opens Venmo with the recipient, amount, and note prefilled. The guest confirms the payment in Venmo; Tab-Splits doesn't move money.
 5. **Start your own.** A "Split your own tabs for free" link at the bottom of every tab invites guests to organize their own.
 
 <!-- SCREENSHOTS: see docs/screenshots/README.md. Once captured, insert here in flow order:
-![Verify: AI-extracted items beside the receipt photo](docs/screenshots/1-verify.png)
-![Assign: "Who had a…?" with an unequal split](docs/screenshots/2-assign.png)
-![Review: one diner's items, tax, tip, and total](docs/screenshots/3-review.png)
-![Share: the diner's view with the Venmo button](docs/screenshots/4-share.png)
+![Organizer, Verify: AI-extracted items beside the receipt photo](docs/screenshots/1-verify.png)
+![Organizer, Assign: "Who had a…?" with an unequal split](docs/screenshots/2-assign.png)
+![Guest, pick your name: personalizes the view, no login](docs/screenshots/3-guest-name.png)
+![Guest, your tab: items, tax and tip share, total, and the Venmo handoff](docs/screenshots/4-guest-tab.png)
 -->
 
 ## Real-world use
@@ -69,9 +69,9 @@ The commit history shows the product changing shape as it got used:
 
 **2. One calculation everywhere, accurate to the cent.** The organizer's view, the review step, and each diner's link all use the same function, so everyone sees the same numbers. Tax and tip are split in proportion to what each person ordered, and amounts are allocated in whole cents. Before that change, roughly 3 in 10 randomized test bills had per-person amounts that missed the receipt total by a cent or so. Now, when every item is assigned and the items match the subtotal, the shares sum exactly to the bill, and a randomized test enforces it.
 
-**3. Design for the guest first, at the organizer's expense.** Diners are usually meeting the product for the first time, didn't choose it, and need to trust that their share is fair. So most of the design effort went to the guest side described above: no sign-up, an itemized tab they can check, and payment one tap away. The tradeoff is that the link works like a key: anyone who has it can view the tab, and names aren't verified. So it shows as little as possible, with no phone numbers or emails, and the receipt photo only for link holders.
+**3. Design for the guest first, at the organizer's expense.** Diners are usually meeting the product for the first time, didn't choose it, and need to trust that their share is fair. So most of the design effort went to the guest experience described above: no sign-up, an itemized tab they can check against the full bill, and payment details prefilled in Venmo. The tradeoff is that the link works like a key: anyone who has it can view the tab, and names aren't verified. So it shows as little as possible, with no phone numbers or emails, and the receipt photo only for link holders.
 
-The organizer flow got less polish, and it's still harder for a first-timer. I was almost always the organizer and could work around its rough edges, so I chose to invest elsewhere. Interest from other members in running their own dinners showed what that choice costs: the first-time organizer experience is what would limit adoption beyond my own table. It's an open tradeoff, not a solved one.
+The organizer flow got less polish, and it's still harder for a first-timer. That began as a practical call more than a strategy: I was almost always the organizer and could work around its rough edges, so guest-facing work kept winning. The cost became clear only when other members wanted to run their own dinners. The first-time organizer experience is now the main constraint on adoption beyond my own table. It's an open tradeoff, not a solved one.
 
 **4. Engineering effort goes where money, privacy, and reliability are at stake, not into speculative infrastructure.** Re-scans and deletions are all-or-nothing database transactions, so a dropped connection can't leave a half-empty bill. Request logs exclude response bodies, and production won't start without a real session secret. Just as deliberate is what's *not* here: no indexes for scale it doesn't have, no error-tracking vendor, no major dependency upgrades for advisories that don't apply to how it runs. [`BACKLOG.md`](BACKLOG.md) records those deferrals and why.
 

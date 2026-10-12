@@ -1,6 +1,6 @@
 # Demo screenshots: capture checklist
 
-Four screenshots of the real app, captured against the **development** environment (see [`../environments.md`](../environments.md)). Never capture from production or show real diners, receipts, or contact details.
+Four screenshots of the real app (two organizer screens, two guest screens), captured against the **development** environment (see [`../environments.md`](../environments.md)). Never capture from production or show real diners, receipts, or contact details.
 
 ## Demo data
 
@@ -26,10 +26,10 @@ Four screenshots of the real app, captured against the **development** environme
 
 | File | Screen | Capture |
 |---|---|---|
-| `1-verify.png` | Wizard → Verify item details | The extracted item list (top of the step). Then tap the image icon by the restaurant name to open the receipt photo. Place the two captures side by side in one image and note that it's two screens. |
-| `2-assign.png` | Wizard → Assign items, on Mezcal Margarita | The "Who had a 3x Mezcal Margarita?" drawer with **Split by share** selected, showing Priya 2 and Marcus 1. |
-| `3-review.png` | Wizard → Review diner totals, on Priya | Priya's items (including her ⅔ share of the margaritas), subtotal, tax + tip share, and total. |
-| `4-share.png` | Shared link in a private window | Open the share link, pick **Priya** at "Who are you?", and capture her tab with the **Pay @demo-sam on Venmo** button. |
+| `1-verify.png` | **Organizer:** Wizard → Verify item details | The extracted item list (top of the step). Then tap the image icon by the restaurant name to open the receipt photo. Place the two captures side by side in one image and note that it's two screens. |
+| `2-assign.png` | **Organizer:** Wizard → Assign items, on Mezcal Margarita | The "Who had a 3x Mezcal Margarita?" drawer with **Split by share** selected, showing Priya 2 and Marcus 1. |
+| `3-guest-name.png` | **Guest:** shared link in a private window | The "Who are you?" picker listing Priya, Marcus, Elena, and Sam, plus "Just browsing". |
+| `4-guest-tab.png` | **Guest:** Priya's tab | After picking **Priya**: her items (including her ⅔ share of the margaritas), tax and tip share, total, and the **Pay @demo-sam on Venmo** button. Use a full-page capture at 390 px wide if it doesn't fit on one screen. |
 
 ## After capturing
 
