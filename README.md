@@ -12,14 +12,28 @@ I independently direct the product, UX, technical decisions, testing, and iterat
 
 ## The experience
 
-A guided flow takes the organizer from photo to shared tab:
+Tab-Splits is two-sided. The organizer does the work once; every guest gets a tab they can understand, trust, and settle. Most of the design effort went to the guest side (see [decision 3](#product-and-technical-decisions)).
 
-1. **Scan.** Snap the receipt. GPT-4o vision extracts the restaurant, line items, subtotal, tax, and any auto-gratuity.
-2. **Verify.** Review and correct what the AI read, next to the original photo. Items are auto-categorized (appetizer, meal, drink, dessert).
-3. **Choose the meal format.** *Family Style* pre-assigns shared food to everyone. *Coursed* pre-assigns appetizers and desserts and leaves mains and drinks individual. *Mixed Bag* starts from scratch.
-4. **Assign.** Step through items one at a time: who had it? Items split equally, or *by share* when people had different amounts.
-5. **Tip, review, and who paid.** Set the tip and check each diner's itemized total before anything is sent.
-6. **Share.** One read-only link, by QR code or text message. Diners pick their name (no login) and land on their own tab: their items, their share of tax and tip, and a button that opens Venmo with the amount filled in.
+**For the organizer**
+
+1. **Scan** the receipt. GPT-4o vision reads the items, subtotal, tax, and any auto-gratuity.
+2. **Verify** what the AI read against the photo.
+3. **Assign** items. A meal-format preset (*Family Style*, *Coursed*, *Mixed Bag*) handles the shared plates, then a "Who had the…?" prompt goes item by item. Split equally, or *by share* when people had different amounts.
+4. **Tip, choose who paid, review, and share.** Check each diner's total, then send one link by QR code or text.
+
+**For each guest**
+
+1. **Open the link.** No app, account, or password.
+2. **Pick your name** and land on your own tab, or browse the whole bill.
+3. **Check it line by line:**
+   - your items;
+   - your portion of anything shared (¼ of the appetizer, ⅔ of the margaritas);
+   - your share of tax and tip;
+   - your total.
+
+   The full bill and the original receipt photo are a tap away.
+4. **Settle in one tap.** If the person who paid has added a Venmo handle, *Pay @payer on Venmo* opens Venmo with the amount and a note already filled in.
+5. **Start your own.** A "Split your own tabs for free" link at the bottom of every tab invites guests to organize their own.
 
 <!-- SCREENSHOTS: see docs/screenshots/README.md. Once captured, insert here in flow order:
 ![Verify: AI-extracted items beside the receipt photo](docs/screenshots/1-verify.png)
@@ -55,7 +69,7 @@ The commit history shows the product changing shape as it got used:
 
 **2. One calculation everywhere, accurate to the cent.** The organizer's view, the review step, and each diner's link all use the same function, so everyone sees the same numbers. Tax and tip are split in proportion to what each person ordered, and amounts are allocated in whole cents. Before that change, roughly 3 in 10 randomized test bills had per-person amounts that missed the receipt total by a cent or so. Now, when every item is assigned and the items match the subtotal, the shares sum exactly to the bill, and a randomized test enforces it.
 
-**3. Design for the guest first, at the organizer's expense.** Diners are usually meeting the product for the first time, didn't choose it, and need to trust that their share is fair. So most of the design effort went there. There's no account: you pick your name and see your own items, your share of tax and tip, and a total you can check line by line, with a Venmo button that has the amount filled in. The link works like a key: anyone who has it can view the tab, and names aren't verified. So it shows as little as possible, with no phone numbers or emails, and the receipt photo only for link holders.
+**3. Design for the guest first, at the organizer's expense.** Diners are usually meeting the product for the first time, didn't choose it, and need to trust that their share is fair. So most of the design effort went to the guest side described above: no sign-up, an itemized tab they can check, and payment one tap away. The tradeoff is that the link works like a key: anyone who has it can view the tab, and names aren't verified. So it shows as little as possible, with no phone numbers or emails, and the receipt photo only for link holders.
 
 The organizer flow got less polish, and it's still harder for a first-timer. I was almost always the organizer and could work around its rough edges, so I chose to invest elsewhere. Interest from other members in running their own dinners showed what that choice costs: the first-time organizer experience is what would limit adoption beyond my own table. It's an open tradeoff, not a solved one.
 
