@@ -62,7 +62,11 @@ The commit history (285 commits since November 2025) shows the product changing 
 
 ## How I built it
 
-I started Tab-Splits in November 2025 on Replit using its AI agent, then moved it in July 2026 to GitHub + Vercel + Supabase and continued with Claude Code.
+I started Tab-Splits in November 2025 on Replit, building it with Replit's AI agent on Replit's hosted database, object storage, and AI and email connectors. That was the fastest way to learn whether the idea worked at a real dinner. Once it did, I wanted it on a stack I could own, rather than one that only ran inside a single platform.
+
+In July 2026 I moved it, with Claude Code, onto a stack I own end to end: code on **GitHub**, Postgres and file storage on **Supabase** (migrated with `pg_dump`, with existing image paths kept working), and the app on **Vercel**. Each Replit service was replaced with a standard equivalent: a plain Postgres driver, Supabase Storage with signed URLs, and direct OpenAI and Resend API keys.
+
+A deliberate goal was building transferable fluency with real software development and deployment workflows, not just producing AI-assisted prototypes: version control and reviewable commits, environment and secrets management, database migration, serverless deployment, and automated tests for the parts that handle money and private data.
 
 My role was product owner, designer, and technical lead, working through AI tools rather than writing most of the code by hand. Concretely, I:
 
