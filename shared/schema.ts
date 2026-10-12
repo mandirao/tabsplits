@@ -63,7 +63,7 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-const numericStringSchema = z.string().regex(/^\d+(\.\d{1,2})?$/, "Must be a valid numeric string");
+export const numericStringSchema = z.string().regex(/^\d+(\.\d{1,2})?$/, "Must be a valid numeric string");
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertReceiptSchema = createInsertSchema(receipts).omit({ id: true });

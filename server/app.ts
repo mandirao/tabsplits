@@ -5,6 +5,7 @@ import { type Server } from "http";
 import { registerRoutes } from "./routes";
 import { log } from "./log";
 import { pool } from "./db";
+import { getSessionSecret, redactPath } from "./requestSecurity";
 
 declare module 'http' {
   interface IncomingMessage {
@@ -43,7 +44,7 @@ export async function createApp(): Promise<{ app: express.Express; server: Serve
       pool,
       createTableIfMissing: true,
     }),
-    secret: process.env.SESSION_SECRET || "fallback-dev-secret-change-in-prod",
+    secret: getSessionSecret(),
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -54,32 +55,17 @@ export async function createApp(): Promise<{ app: express.Express; server: Serve
     },
   }));
 
+  // Request log: method, path, status, and duration only. Response bodies are
+  // never logged — they carry receipt contents, names, phone numbers, and share
+  // tokens. Share tokens in the path are redacted for the same reason.
   app.use((req, res, next) => {
     const start = Date.now();
     const path = req.path;
-    let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-    const originalResJson = res.json;
-    res.json = function (bodyJson, ...args) {
-      capturedJsonResponse = bodyJson;
-      return originalResJson.apply(res, [bodyJson, ...args]);
-    };
 
     res.on("finish", () => {
-      const duration = Date.now() - start;
       if (path.startsWith("/api")) {
-        let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-        // Never log response bodies for auth routes — they may contain password reset tokens
-        // or other credentials that must not appear in persistent logs.
-        if (capturedJsonResponse && !path.startsWith("/api/auth")) {
-          logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-        }
-
-        if (logLine.length > 80) {
-          logLine = logLine.slice(0, 79) + "…";
-        }
-
-        log(logLine);
+        const duration = Date.now() - start;
+        log(`${req.method} ${redactPath(path)} ${res.statusCode} in ${duration}ms`);
       }
     });
 

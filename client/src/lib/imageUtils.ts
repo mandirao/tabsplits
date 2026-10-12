@@ -1,3 +1,14 @@
+// Receipt photos sent for scanning go up as base64 JSON, and Vercel rejects
+// function request bodies over 4.5MB. GPT-4o downsizes anything beyond 2048px
+// anyway, so capping the long edge loses no accuracy and keeps typical phone
+// photos well under the limit.
+export const SCAN_MAX_EDGE = 2048;
+export const SCAN_JPEG_QUALITY = 0.85;
+
+export function scanImageScale(width: number, height: number): number {
+  return Math.min(1, SCAN_MAX_EDGE / Math.max(width, height));
+}
+
 export async function compressForStorage(dataUrl: string, maxWidth = 1200, quality = 0.65): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();

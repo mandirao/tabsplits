@@ -24,13 +24,10 @@ import { fromError } from "zod-validation-error";
 import { z, ZodError } from "zod";
 import OpenAI from "openai";
 import { registerObjectStorageRoutes } from "./objectStorage";
+import { canAttachImageUrl } from "./objectAccess";
+import { replaceReceiptContentsSchema } from "./receiptWrites";
+import { reconcileItems } from "../shared/splitMath";
 import bcrypt from "bcrypt";
-
-const linkPhoneSchema = z.object({
-  phone: z.string().min(1).max(32),
-  personId: z.string().optional(),
-  name: z.string().min(1).max(200).optional(),
-});
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -279,72 +276,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tax: receipt.tax,
         tip: receipt.tip,
         total: receipt.total,
-        imageUrl: receipt.imageUrl,
+        // Scope the image URL to this share token; /objects checks it against this receipt.
+        imageUrl: receipt.imageUrl?.startsWith("/objects/")
+          ? `${receipt.imageUrl}?share=${encodeURIComponent(req.params.token)}`
+          : receipt.imageUrl,
         paidById: receipt.paidById,
         paidByName: paidByPerson?.name || null,
         paidByVenmo: (paidByPerson as any)?.venmoUsername || null,
       };
       
-      res.json({ receipt: redactedReceipt, items, people: redactedPeople });
+      // Lets the shared page say so when items don't add up to the subtotal (or
+      // aren't all assigned), so diners know their amounts may not sum to the bill.
+      const status = {
+        itemsMatchSubtotal: reconcileItems(items, receipt.subtotal).matches,
+        allItemsAssigned: items.every(item => ((item.assignedTo as string[]) || []).length > 0),
+      };
+
+      res.json({ receipt: redactedReceipt, items, people: redactedPeople, status });
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/share/:token/verify-phone", ipRateLimit(20, 15 * 60 * 1000, "Too many attempts. Please wait 15 minutes and try again."), async (req, res) => {
-    try {
-      const { phone } = req.body;
-      if (!phone) return res.status(400).json({ message: "Phone number is required" });
-
-      const receipt = await storage.getReceiptByShareToken(req.params.token);
-      if (!receipt) return res.status(404).json({ message: "Receipt not found" });
-
-      const receiptPeople = await storage.getReceiptPeople(receipt.id);
-      const matchingPerson = receiptPeople.find(p => p.phone === phone);
-      
-      if (matchingPerson) {
-        return res.json({ verified: true, personId: matchingPerson.id, personName: matchingPerson.name });
-      }
-
-      const unmatchedPeople = receiptPeople
-        .filter(p => !p.phone)
-        .map(p => ({ id: p.id, name: p.name }));
-
-      res.json({ verified: false, unmatchedPeople });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/share/:token/link-phone", ipRateLimit(20, 15 * 60 * 1000, "Too many attempts. Please wait 15 minutes and try again."), async (req, res) => {
-    try {
-      const { phone, personId, name } = linkPhoneSchema.parse(req.body);
-
-      const receipt = await storage.getReceiptByShareToken(req.params.token);
-      if (!receipt) return res.status(404).json({ message: "Receipt not found" });
-
-      const receiptPeople = await storage.getReceiptPeople(receipt.id);
-      const assignedPersonIds = new Set(receiptPeople.map(p => p.id));
-
-      let person;
-      if (personId) {
-        if (!assignedPersonIds.has(personId)) {
-          return res.status(403).json({ message: "This person is not assigned to this receipt" });
-        }
-        await storage.updatePerson(personId, { phone });
-        person = await storage.getPerson(personId);
-        if (!person) return res.status(404).json({ message: "Person not found" });
-      } else if (name) {
-        person = await storage.createPerson(insertPersonSchema.parse({ name, phone }));
-      } else {
-        return res.status(400).json({ message: "Either personId or name is required" });
-      }
-
-      res.json({ verified: true, personId: person.id, personName: person.name });
-    } catch (error: any) {
-      if (error instanceof ZodError) {
-        return res.status(400).json({ message: fromError(error).toString() });
-      }
       res.status(500).json({ message: error.message });
     }
   });
@@ -544,6 +493,9 @@ Return ONLY a JSON object mapping each ID to its category: {"id1": "meal", "id2"
         ...req.body,
         userId: req.session.userId,
       });
+      if (!canAttachImageUrl(validatedData.imageUrl, req.session.userId!)) {
+        return res.status(400).json({ message: "Invalid receipt image" });
+      }
       const receipt = await storage.createReceipt(validatedData);
       res.json(receipt);
     } catch (error: any) {
@@ -575,6 +527,9 @@ Return ONLY a JSON object mapping each ID to its category: {"id1": "meal", "id2"
       const owned = await getOwnedReceipt(req.params.id, req.session.userId!, res);
       if (!owned) return;
       const validatedData = updateReceiptSchema.parse(req.body);
+      if (!canAttachImageUrl(validatedData.imageUrl, req.session.userId!, owned.imageUrl)) {
+        return res.status(400).json({ message: "Invalid receipt image" });
+      }
       const receipt = await storage.updateReceipt(req.params.id, validatedData);
       res.json(receipt);
     } catch (error: any) {
@@ -645,6 +600,25 @@ Return ONLY a JSON object mapping each ID to its category: {"id1": "meal", "id2"
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Atomically replace a receipt's totals and all of its items (re-scan).
+  app.put("/api/receipts/:id/contents", requireAuth, async (req, res) => {
+    try {
+      const owned = await getOwnedReceipt(req.params.id, req.session.userId!, res);
+      if (!owned) return;
+      const parsed = replaceReceiptContentsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: `The scan result couldn't be used (${fromError(parsed.error).toString()}). Your receipt wasn't changed.`,
+        });
+      }
+      const result = await storage.replaceReceiptContents(req.params.id, req.session.userId!, parsed.data);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Replace receipt contents failed:", error);
+      res.status(500).json({ message: "Couldn't save the re-scanned items. Your receipt wasn't changed." });
     }
   });
 

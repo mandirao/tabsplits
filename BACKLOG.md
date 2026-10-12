@@ -10,9 +10,6 @@ Deferred items from the engineering audit (security/scalability/maintainability 
 ## Data integrity & scale
 
 - **`deletePerson` scans every item row in the entire app** — `server/storage.ts:233-237` runs `db.select().from(receiptItems)` with no `WHERE` clause at all, pulling every item belonging to every user into memory just to check whether one person is assigned somewhere. Gets slower for everyone as total app-wide item count grows, not just this user's. Fix: scope the query through the person's own receipts, or use a JSONB containment check instead of loading the whole table.
-- **Re-scanning a receipt can silently leave it with zero items** — the "re-parse with AI" flow (`client/src/pages/ReceiptDetailPage.tsx:505-516`) deletes all current items, then creates the new ones one HTTP request at a time, with no server-side equivalent to wrap in a transaction. A dropped connection between the delete and the last create leaves the receipt empty with no recovery path. Fix: add one server endpoint that does delete + bulk-insert inside a single `db.transaction`, and have the client call it once.
-- **Deleting a receipt is four separate, un-transacted deletes** — `server/storage.ts:129-134` deletes payments, receipt-people, items, and the receipt itself in four sequential statements. A crash between any two leaves orphaned rows or a receipt that appears empty rather than gone. Fix: wrap all four in `db.transaction(async (tx) => {…})` — the one multi-table write in this codebase that actually needs it.
-- **AI scan/categorize calls have no timeout guard on Vercel** — `server/routes.ts:330, 462`; `vercel.json` has no `functions` block, so the platform default (10s on Hobby) applies. A busy receipt commonly takes GPT-4o vision 5-20+ seconds to parse — long enough to get killed mid-flight, returning a raw 504 instead of the friendly JSON error this codebase otherwise handles carefully. Fix: raise `maxDuration` in `vercel.json` for the API function, and add a friendly timeout message client-side.
 - **No indexes on foreign-key columns** — `shared/schema.ts`: `receipts.userId`, `receiptItems.receiptId`, `people.userId`, `receiptPeople.*`, `payments.*`. Every list query filtering on these does a sequential scan as the table grows. Not urgent — `shareToken` and `users.email` are already indexed via their `.unique()` constraints, and current volume is small. Fix: add `.index()` on the columns above opportunistically, no rush.
 - **A few sequential read waterfalls instead of parallel fetches** — `server/storage.ts:319-327` (settlement) and `routes.ts:229-270` (share). Independent reads are `await`ed one after another rather than `Promise.all`'d. Adds latency, not a real scale risk at current receipt/item counts. Fix: batch with `Promise.all` when convenient.
 
@@ -27,3 +24,9 @@ Deferred items from the engineering audit (security/scalability/maintainability 
 ## Maintainability
 
 - **The "add a diner" flow is reimplemented 4 separate times** (`HomePage.tsx`, `RegularsPage.tsx`, `ReceiptDetailPage.tsx`'s `AddPersonPanel`, `ReceiptWizard.tsx`) — ~350+ lines of duplicated contacts-picker/manual-entry logic. Real refactor, same shape as the split-math and receipt-summary-view consolidations already done. Worth its own planning pass.
+
+## Resolved (October 2026 portfolio-readiness pass)
+
+- Re-scan is now one transactional, owner-scoped endpoint (`PUT /api/receipts/:id/contents`); receipt deletion runs in a transaction (`server/receiptWrites.ts`).
+- The AI-timeout item is obsolete: the project runs on Fluid Compute with a 300s default function timeout (verified in project settings), well above typical GPT-4o scan times.
+- Receipt images are authorized per owner / share token; response bodies are no longer logged; production requires `SESSION_SECRET`; per-person totals reconcile to the cent; a non-blocking warning (organizer and diner views) flags bills whose items don't match the subtotal; share links are stable.

@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { ReceiptItem } from "@shared/schema";
 import { getPersonTotals } from "@shared/splitMath";
-import { ChevronRight, ArrowRight } from "lucide-react";
+import { ChevronRight, ArrowRight, AlertTriangle } from "lucide-react";
 import logoUrl from "@assets/icon-1024_1775014486817.png";
 import { getDisplayNames } from "@/lib/personDisplay";
 import { firstNameOnly, getPeopleWithColors } from "@/lib/receiptSummary";
@@ -39,6 +39,7 @@ interface SharedReceiptPayload {
   receipt: RedactedReceipt;
   items: ReceiptItem[];
   people: RedactedPerson[];
+  status?: { itemsMatchSubtotal: boolean; allItemsAssigned: boolean };
 }
 
 export default function SharedReceiptPage({ params }: { params: { token: string } }) {
@@ -197,6 +198,20 @@ export default function SharedReceiptPage({ params }: { params: { token: string 
           </div>
         </div>
       </header>
+
+      {data?.status && (!data.status.itemsMatchSubtotal || !data.status.allItemsAssigned) && (
+        <div
+          className="mx-4 mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+          data-testid="banner-bill-in-progress"
+        >
+          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+          <span>
+            {!data.status.itemsMatchSubtotal
+              ? "The items on this tab don't add up exactly to the receipt subtotal, so individual amounts may not add up to the bill total."
+              : "Some items haven't been assigned yet, so amounts may change."}
+          </span>
+        </div>
+      )}
 
       <ReceiptSummaryTabRow
         people={peopleInTabs}

@@ -42,7 +42,7 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Receipt, ReceiptItem, Person } from "@shared/schema";
-import { getItemLineTotal, getPersonItemShare, getPersonTotals } from "@shared/splitMath";
+import { getItemLineTotal, getPersonItemShare, getPersonTotals, describeSubtotalMismatch, reconcileItems } from "@shared/splitMath";
 import ReceiptWizard from "@/components/ReceiptWizard";
 import { CAT_LABELS, CAT_LABELS_SHORT, CATEGORY_ORDER, getInitials, PERSON_COLORS } from "@/lib/categories";
 import AssignPersonSheetBody from "@/components/AssignPersonSheetBody";
@@ -380,6 +380,7 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
   const [editItemData, setEditItemData] = useState<{ name: string; quantity: number; price: string; category?: string | null }>({ name: "", quantity: 1, price: "", category: null });
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [shareBottomSheetOpen, setShareBottomSheetOpen] = useState(false);
+  const [totalsSheetOpen, setTotalsSheetOpen] = useState(false);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
   const [urlCopied, setUrlCopied] = useState(false);
   const [activeShareToken, setActiveShareToken] = useState<string | null>(null);
@@ -494,29 +495,23 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
         throw new Error("No items detected in the image");
       }
 
-      // Update receipt fields (name, subtotal, tax, tip, total)
+      // Replace totals and items in one server-side transaction: if anything
+      // fails, the existing receipt (and its assignments) is left untouched.
+      // Assignments are cleared on success because the old items are replaced.
       const receiptUpdate: Record<string, string> = {};
       if (parsed.restaurantName) receiptUpdate.restaurantName = String(parsed.restaurantName);
       if (parsed.subtotal != null) receiptUpdate.subtotal = Number(parsed.subtotal).toFixed(2);
       if (parsed.tax != null) receiptUpdate.tax = Number(parsed.tax).toFixed(2);
       if (parsed.tip != null) receiptUpdate.tip = Number(parsed.tip).toFixed(2);
       if (parsed.total != null) receiptUpdate.total = Number(parsed.total).toFixed(2);
-      if (Object.keys(receiptUpdate).length > 0) {
-        await apiRequest(`/api/receipts/${receiptId}`, "PATCH", receiptUpdate);
-      }
-
-      // Fetch the live item list so we have current IDs, then delete each one
-      const liveItems: Array<{ id: string }> = await apiRequest(`/api/receipts/${receiptId}/items`, "GET");
-      await Promise.all(liveItems.map((it) => apiRequest(`/api/items/${it.id}`, "DELETE")));
-
-      // Insert all freshly-parsed items
-      for (const item of newItems) {
-        await apiRequest(`/api/receipts/${receiptId}/items`, "POST", {
+      await apiRequest(`/api/receipts/${receiptId}/contents`, "PUT", {
+        receipt: receiptUpdate,
+        items: newItems.map((item) => ({
           name: String(item.name),
-          quantity: Number(item.quantity) > 0 ? Number(item.quantity) : 1,
+          quantity: Number(item.quantity) > 0 ? Math.round(Number(item.quantity)) : 1,
           price: Number(item.price).toFixed(2),
-        });
-      }
+        })),
+      });
 
       return { ...parsed, items: newItems };
     },
@@ -596,6 +591,24 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/receipts", receiptId] });
     }
+  });
+
+  // Fixes a misread subtotal: adopt the item total as the receipt subtotal.
+  const adoptItemsSubtotalMutation = useMutation({
+    mutationFn: async (itemsTotal: number) => {
+      return await apiRequest(`/api/receipts/${receiptId}`, "PATCH", {
+        subtotal: itemsTotal.toFixed(2),
+        total: (itemsTotal + tax + tipAmount).toFixed(2),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/receipts", receiptId] });
+      setTotalsSheetOpen(false);
+      toast({ title: "Subtotal updated", description: "Everyone's share now adds up to the bill." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Couldn't update subtotal", description: error.message, variant: "destructive" });
+    },
   });
 
   const updatePaidByMutation = useMutation({
@@ -965,14 +978,11 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
   // CTA state — drives the bottom action bar
   const isReadyToShare = items.length > 0 && peopleWithColors.length > 0 && !hasUnassignedItems;
 
-  // Calculate running total of all items
-  const itemsSubtotal = items.reduce((sum, item) => {
-    return sum + getItemLineTotal(item);
-  }, 0);
-  
-  // Check if items match receipt subtotal
-  const subtotalDifference = Math.abs(itemsSubtotal - subtotal);
-  const totalsMatch = subtotalDifference < 0.01;
+  // Advisory: when items don't add up to the receipt subtotal (to the cent),
+  // individual amounts won't add up to the bill. Shown, never blocking.
+  const reconciliation = reconcileItems(items, receipt?.subtotal ?? 0);
+  const totalsMatch = reconciliation.matches;
+  const mismatchNote = receipt ? describeSubtotalMismatch(items, receipt.subtotal) : null;
 
   const CATEGORY_TABS = CATEGORY_ORDER;
   const hasCategoryData = items.some(item => item.category);
@@ -1435,6 +1445,16 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
                   <Check className="h-4 w-4 text-green-600 flex-shrink-0" />
                 </span>
               )}
+              {!totalsMatch && items.length > 0 && selectedTab === "all" && (
+                <button
+                  onClick={() => setTotalsSheetOpen(true)}
+                  title="Items don't add up to the receipt subtotal"
+                  className="rounded hover-elevate active-elevate-2"
+                  data-testid="button-totals-mismatch"
+                >
+                  <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -1643,6 +1663,48 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
 
 
       <BottomSheet
+        open={totalsSheetOpen}
+        onClose={() => setTotalsSheetOpen(false)}
+        title="Items don't match the receipt subtotal"
+      >
+        <div className="p-4 space-y-4" data-testid="sheet-totals-mismatch">
+          <p className="text-sm text-muted-foreground">
+            {mismatchNote ?? "Items now match the receipt subtotal."}
+          </p>
+          {items.length > 0 && (
+            <div className="rounded-lg border p-3 space-y-1 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Items total</span><span>${reconciliation.itemsTotal.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Receipt subtotal</span><span>${reconciliation.subtotal.toFixed(2)}</span></div>
+              <div className="flex justify-between font-medium text-amber-700 dark:text-amber-500"><span>Difference</span><span>${Math.abs(reconciliation.difference).toFixed(2)}</span></div>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Usually a missed or misread item — compare against the receipt photo and edit or add items.
+            If the items are right and the subtotal was misread, use the items total instead.
+          </p>
+          <div className="flex flex-col gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setTotalsSheetOpen(false); setSelectedTab("all"); }}
+              data-testid="button-review-items"
+            >
+              Review items
+            </Button>
+            {items.length > 0 && !totalsMatch && (
+              <Button
+                variant="outline"
+                disabled={adoptItemsSubtotalMutation.isPending}
+                onClick={() => adoptItemsSubtotalMutation.mutate(reconciliation.itemsTotal)}
+                data-testid="button-use-items-subtotal"
+              >
+                Use ${reconciliation.itemsTotal.toFixed(2)} as the subtotal
+              </Button>
+            )}
+          </div>
+        </div>
+      </BottomSheet>
+
+      <BottomSheet
         open={shareBottomSheetOpen}
         onClose={() => {
           setShareBottomSheetOpen(false);
@@ -1650,6 +1712,21 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
         title="Share Receipt"
       >
         <div className="space-y-4">
+          {mismatchNote && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300" data-testid="note-share-mismatch">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+              <span>
+                {mismatchNote}{" "}
+                <button
+                  className="underline font-medium"
+                  onClick={() => { setShareBottomSheetOpen(false); setTotalsSheetOpen(true); }}
+                  data-testid="button-share-fix-totals"
+                >
+                  Fix totals
+                </button>
+              </span>
+            </div>
+          )}
           {generateShareTokenMutation.isPending ? (
             <div className="text-center py-8">
               <p className="text-sm text-muted-foreground">Generating share link...</p>

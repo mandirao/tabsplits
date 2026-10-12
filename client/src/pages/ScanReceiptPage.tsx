@@ -5,7 +5,7 @@ import { ArrowLeft, Camera, Upload, Loader2, RotateCw, RotateCcw } from "lucide-
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { trySessionStore } from "@/lib/imageUtils";
+import { SCAN_JPEG_QUALITY, scanImageScale, trySessionStore } from "@/lib/imageUtils";
 import { useToast } from "@/hooks/use-toast";
 import { useUpload } from "@/hooks/use-upload";
 
@@ -88,22 +88,25 @@ export default function ScanReceiptPage() {
           return;
         }
 
-        // Set canvas dimensions based on rotation
+        // Set canvas dimensions based on rotation (downscaled to stay under upload limits)
+        const scale = scanImageScale(img.width, img.height);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
         if (rotation === 90 || rotation === 270) {
-          canvas.width = img.height;
-          canvas.height = img.width;
+          canvas.width = h;
+          canvas.height = w;
         } else {
-          canvas.width = img.width;
-          canvas.height = img.height;
+          canvas.width = w;
+          canvas.height = h;
         }
 
         // Translate and rotate
         ctx.translate(canvas.width / 2, canvas.height / 2);
         ctx.rotate((rotation * Math.PI) / 180);
-        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
 
         // Convert to base64
-        const base64 = canvas.toDataURL('image/jpeg', 0.95);
+        const base64 = canvas.toDataURL('image/jpeg', SCAN_JPEG_QUALITY);
         resolve(base64.split(',')[1]);
       };
       img.onerror = reject;

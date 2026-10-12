@@ -17,9 +17,10 @@ import {
   payments,
   users,
 } from "../shared/schema";
-import { getItemShares } from "../shared/splitMath";
+import { getPersonTotals } from "../shared/splitMath";
+import { deleteReceiptCascade, replaceReceiptContents, type ReplaceReceiptContents } from "./receiptWrites";
 import { db } from "./db";
-import { eq, and, isNull, or, desc } from "drizzle-orm";
+import { eq, and, isNull, or, desc, sql } from "drizzle-orm";
 
 export interface IStorage {
   // Auth / User operations
@@ -36,8 +37,10 @@ export interface IStorage {
   getAllReceipts(userId: string): Promise<Receipt[]>;
   updateReceipt(id: string, receipt: Partial<InsertReceipt>): Promise<Receipt>;
   deleteReceipt(id: string): Promise<void>;
+  replaceReceiptContents(id: string, userId: string, data: ReplaceReceiptContents): Promise<{ receipt: Receipt; items: ReceiptItem[] }>;
   generateShareToken(id: string): Promise<Receipt | undefined>;
   getReceiptByShareToken(token: string): Promise<Receipt | undefined>;
+  userHasReceiptWithImage(userId: string, imageUrl: string): Promise<boolean>;
 
   // Receipt Item operations
   createReceiptItem(item: InsertReceiptItem): Promise<ReceiptItem>;
@@ -127,17 +130,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteReceipt(id: string): Promise<void> {
-    await db.delete(payments).where(eq(payments.receiptId, id));
-    await db.delete(receiptPeople).where(eq(receiptPeople.receiptId, id));
-    await db.delete(receiptItems).where(eq(receiptItems.receiptId, id));
-    await db.delete(receipts).where(eq(receipts.id, id));
+    await deleteReceiptCascade(db, id);
   }
 
+  async replaceReceiptContents(id: string, userId: string, data: ReplaceReceiptContents) {
+    return replaceReceiptContents(db, id, userId, data);
+  }
+
+  // Idempotent: links already sent to diners keep working when the organizer
+  // shares again (e.g. re-running the wizard). Only mints a token if none exists.
   async generateShareToken(id: string): Promise<Receipt | undefined> {
-    const shareToken = crypto.randomUUID();
     const [result] = await db
       .update(receipts)
-      .set({ shareToken })
+      .set({ shareToken: sql`coalesce(${receipts.shareToken}, ${crypto.randomUUID()})` })
       .where(eq(receipts.id, id))
       .returning();
     return result;
@@ -149,6 +154,15 @@ export class DatabaseStorage implements IStorage {
       .from(receipts)
       .where(eq(receipts.shareToken, token));
     return result;
+  }
+
+  async userHasReceiptWithImage(userId: string, imageUrl: string): Promise<boolean> {
+    const [result] = await db
+      .select({ id: receipts.id })
+      .from(receipts)
+      .where(and(eq(receipts.userId, userId), eq(receipts.imageUrl, imageUrl)))
+      .limit(1);
+    return !!result;
   }
 
   // Receipt Item operations
@@ -326,26 +340,14 @@ export class DatabaseStorage implements IStorage {
     const receiptPayments = await this.getPayments(receiptId);
     const receiptPeopleList = await this.getReceiptPeople(receiptId);
 
+    const personTotals = getPersonTotals(items, {
+      subtotal: parseFloat(receipt.subtotal),
+      tax: parseFloat(receipt.tax),
+      tip: parseFloat(receipt.tip),
+    });
     const owedByPerson = new Map<string, number>();
     receiptPeopleList.forEach(person => {
-      owedByPerson.set(person.id, 0);
-    });
-
-    const subtotalNum = parseFloat(receipt.subtotal);
-    const taxNum = parseFloat(receipt.tax);
-    const tipNum = parseFloat(receipt.tip);
-
-    items.forEach(item => {
-      const shares = getItemShares(item);
-      Object.entries(shares).forEach(([personId, personShare]) => {
-        const current = owedByPerson.get(personId) || 0;
-        owedByPerson.set(personId, current + personShare);
-      });
-    });
-
-    const taxTipMultiplier = subtotalNum > 0 ? (taxNum + tipNum) / subtotalNum : 0;
-    owedByPerson.forEach((subtotal, personId) => {
-      owedByPerson.set(personId, subtotal + subtotal * taxTipMultiplier);
+      owedByPerson.set(person.id, personTotals.get(person.id)?.total ?? 0);
     });
 
     const paidByPerson = new Map<string, number>();

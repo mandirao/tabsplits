@@ -8,7 +8,7 @@ import BottomSheet from "@/components/BottomSheet";
 import PersonChip from "@/components/PersonChip";
 import TipCalculator from "@/components/TipCalculator";
 import { apiRequest } from "@/lib/queryClient";
-import { trySessionStore } from "@/lib/imageUtils";
+import { SCAN_JPEG_QUALITY, scanImageScale, trySessionStore } from "@/lib/imageUtils";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useUpload } from "@/hooks/use-upload";
@@ -34,7 +34,7 @@ import ItemEditFields from "@/components/ItemEditFields";
 import { useDeleteReceiptItem, useUpdateReceiptItem } from "@/hooks/useReceiptItemMutations";
 import QRCodeLib from "qrcode";
 import type { Receipt, ReceiptItem, Person } from "@shared/schema";
-import { getItemLineTotal, getPersonItemShare } from "@shared/splitMath";
+import { getItemLineTotal, getPersonItemShare, getPersonTotals, describeSubtotalMismatch, reconcileItems } from "@shared/splitMath";
 import { CAT_LABELS, CAT_LABELS_SINGULAR, getInitials, PERSON_COLORS } from "@/lib/categories";
 import { gcd } from "@/lib/receiptSummary";
 import AssignPersonSheetBody from "@/components/AssignPersonSheetBody";
@@ -225,15 +225,17 @@ export default function ReceiptWizard({ open, onClose, initialReceiptId }: Recei
       img.onload = () => {
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d")!;
+        const scale = scanImageScale(img.width, img.height);
+        const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
         if (rotation === 90 || rotation === 270) {
-          canvas.width = img.height; canvas.height = img.width;
+          canvas.width = h; canvas.height = w;
         } else {
-          canvas.width = img.width; canvas.height = img.height;
+          canvas.width = w; canvas.height = h;
         }
         ctx.translate(canvas.width / 2, canvas.height / 2);
         ctx.rotate((rotation * Math.PI) / 180);
-        ctx.drawImage(img, -img.width / 2, -img.height / 2);
-        resolve(canvas.toDataURL("image/jpeg", 0.95).split(",")[1]);
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+        resolve(canvas.toDataURL("image/jpeg", SCAN_JPEG_QUALITY).split(",")[1]);
       };
       img.onerror = reject;
       img.src = previewUrl;
@@ -635,15 +637,10 @@ export default function ReceiptWizard({ open, onClose, initialReceiptId }: Recei
   // ─── Derived data for steps ───────────────────────────────────────────────
   const sub = parseFloat(receipt?.subtotal ?? "0") || 0;
   const tax = parseFloat(receipt?.tax ?? "0") || 0;
-  // item.price is normally the total cost of the line (already accounts for
-  // quantity), but OCR occasionally returns a true per-unit price instead.
-  // Pick whichever interpretation reconciles with the receipt's own subtotal.
-  const itemsSubtotalAsLine = items.reduce((s, i) => s + getItemLineTotal(i), 0);
-  const itemsSubtotalAsUnit = items.reduce((s, i) => s + getItemLineTotal(i) * i.quantity, 0);
-  const itemsSubtotalByUnit = sub > 0 && Math.abs(itemsSubtotalAsUnit - sub) < Math.abs(itemsSubtotalAsLine - sub)
-    ? itemsSubtotalAsUnit
-    : itemsSubtotalAsLine;
-  const subtotalDiff = sub > 0 ? Math.abs(itemsSubtotalByUnit - sub) : 0;
+  // item.price is always the line total (see shared/splitMath.ts). Compare it
+  // the same way the split math and the share check do, so "Totals match" here
+  // means everyone's shares will actually add up to the bill.
+  const subtotalDiff = sub > 0 ? Math.abs(reconcileItems(items, sub).difference) : 0;
   const hasCategoryData = items.some(i => i.category);
   const hasServiceCharge = items.some(i =>
     SERVICE_CHARGE_TERMS.some(term => i.name.toLowerCase().includes(term))
@@ -1059,12 +1056,8 @@ export default function ReceiptWizard({ open, onClose, initialReceiptId }: Recei
           const tipFromReceipt = parseFloat(receipt?.tip ?? "0") || tipAmt;
           const taxFromReceipt = parseFloat(receipt?.tax ?? "0") || 0;
 
-          const getPersonSubtotal = (personId: string) =>
-            items.reduce((s, item) => s + getPersonItemShare(item, personId), 0);
-
-          const totalAssignedSubtotal = peopleWithColors.reduce(
-            (s, p) => s + getPersonSubtotal(p.id), 0
-          );
+          // Same calculation the shared link shows diners.
+          const personTotalsMap = getPersonTotals(items, { subtotal: sub, tax: taxFromReceipt, tip: tipFromReceipt });
 
           const unassignedItems = items.filter(i => !(i.assignedTo as string[])?.length);
 
@@ -1079,12 +1072,10 @@ export default function ReceiptWizard({ open, onClose, initialReceiptId }: Recei
             );
           }
 
-          const personSubtotal = getPersonSubtotal(currentPerson.id);
-          const taxTip = taxFromReceipt + tipFromReceipt;
-          const personTaxTip = totalAssignedSubtotal > 0
-            ? (personSubtotal / totalAssignedSubtotal) * taxTip
-            : 0;
-          const personTotal = personSubtotal + personTaxTip;
+          const currentTotals = personTotalsMap.get(currentPerson.id) ?? { subtotal: 0, tax: 0, tip: 0, total: 0 };
+          const personSubtotal = currentTotals.subtotal;
+          const personTaxTip = currentTotals.tax + currentTotals.tip;
+          const personTotal = currentTotals.total;
           const personItems = items.filter(i =>
             (i.assignedTo as string[])?.includes(currentPerson.id)
           );
@@ -1228,6 +1219,12 @@ export default function ReceiptWizard({ open, onClose, initialReceiptId }: Recei
         {/* ────────────────────────────── STEP 8: SHARE ────────────────────────────── */}
         {step === 8 && (
           <div className="p-4 space-y-4">
+            {receipt && describeSubtotalMismatch(items, receipt.subtotal) && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300" data-testid="note-wizard-share-mismatch">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <span>{describeSubtotalMismatch(items, receipt.subtotal)}</span>
+              </div>
+            )}
             {generateWizardShareMutation.isPending ? (
               <div className="flex flex-col items-center justify-center py-12 gap-3">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -1291,7 +1288,9 @@ export default function ReceiptWizard({ open, onClose, initialReceiptId }: Recei
               </>
             ) : (
               <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <p className="text-sm text-muted-foreground">Could not generate share link.</p>
+                <p className="text-sm text-muted-foreground text-center" data-testid="text-wizard-share-error">
+                  {generateWizardShareMutation.error?.message || "Could not generate share link."}
+                </p>
                 <Button variant="outline" onClick={() => generateWizardShareMutation.mutate()}>Try again</Button>
               </div>
             )}
@@ -1701,15 +1700,11 @@ function ReviewItemsStep({ receiptId, items, receipt, subtotalDiff, fromExisting
   };
 
   const sub = parseFloat(receipt?.subtotal ?? "0") || 0;
-  const itemsTotalUnit = items.reduce((s, i) => s + parseFloat(i.price) * i.quantity, 0);
-  const itemsTotalLine = items.reduce((s, i) => s + parseFloat(i.price), 0);
-  const itemsTotal = sub > 0 && Math.abs(itemsTotalLine - sub) < Math.abs(itemsTotalUnit - sub)
-    ? itemsTotalLine
-    : itemsTotalUnit;
+  const itemsTotal = reconcileItems(items, sub).itemsTotal;
 
   return (
     <div className="p-4 space-y-4">
-      {subtotalDiff > 0.50 && sub > 0 && !fromExistingReceipt && (
+      {subtotalDiff > 0 && sub > 0 && !fromExistingReceipt && (
         <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
           <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-amber-700 dark:text-amber-300">
@@ -1866,8 +1861,8 @@ function ReviewItemsStep({ receiptId, items, receipt, subtotalDiff, fromExisting
       <Card>
         <CardContent className="p-4 space-y-1.5">
           <div className="flex justify-between text-sm"><span className="text-muted-foreground">Items total</span><span>${itemsTotal.toFixed(2)}</span></div>
-          {sub > 0 && <div className={`flex justify-between text-sm ${subtotalDiff > 0.50 ? "text-amber-600" : "text-muted-foreground"}`}><span>Receipt subtotal</span><span>${sub.toFixed(2)}</span></div>}
-          {sub > 0 && subtotalDiff <= 0.50 && <div className="flex items-center gap-1 text-xs text-green-600"><Check className="h-3 w-3" /> Totals match</div>}
+          {sub > 0 && <div className={`flex justify-between text-sm ${subtotalDiff > 0 ? "text-amber-600" : "text-muted-foreground"}`}><span>Receipt subtotal</span><span>${sub.toFixed(2)}</span></div>}
+          {sub > 0 && subtotalDiff === 0 && <div className="flex items-center gap-1 text-xs text-green-600"><Check className="h-3 w-3" /> Totals match</div>}
         </CardContent>
       </Card>
 

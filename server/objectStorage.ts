@@ -1,9 +1,12 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { randomUUID } from "crypto";
 import { StorageClient } from "@supabase/storage-js";
+import { storage } from "./storage";
+import { authorizeObjectAccess, ownedUploadPrefix } from "./objectAccess";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
+const SIGNED_URL_TTL_SECONDS = 300;
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session.userId) {
@@ -14,9 +17,10 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
 
 // Receipt images live in a private Supabase Storage bucket. Uploads use
 // short-lived signed upload URLs (client PUTs the file directly to Supabase);
-// reads redirect to short-lived signed download URLs. Stored paths keep the
-// pre-migration `/objects/uploads/<uuid>` shape so existing imageUrl values
-// in the database remain valid.
+// reads are authorized here (see objectAccess.ts) and then redirect to a
+// short-lived signed download URL. New uploads are stored under
+// `uploads/<userId>/<uuid>`; legacy `uploads/<uuid>` paths remain readable
+// through the receipt that references them.
 const BUCKET = "receipts";
 
 function getStorage() {
@@ -47,7 +51,7 @@ export function registerObjectStorageRoutes(app: Express): void {
         return res.status(400).json({ error: "File too large" });
       }
 
-      const objectPath = `uploads/${randomUUID()}`;
+      const objectPath = `${ownedUploadPrefix(req.session.userId!)}${randomUUID()}`;
       const { data, error } = await getStorage()
         .from(BUCKET)
         .createSignedUploadUrl(objectPath);
@@ -66,13 +70,29 @@ export function registerObjectStorageRoutes(app: Express): void {
     }
   });
 
-  // Serve uploaded objects by redirecting to a signed download URL.
+  // Serve an uploaded object to its owner, or to a share-link viewer of the
+  // receipt it's attached to (`?share=<token>`), via a signed download URL.
   app.get("/objects/:objectPath(*)", async (req, res) => {
     try {
-      const objectPath = req.params.objectPath;
+      const decision = await authorizeObjectAccess(
+        { objectPath: req.params.objectPath, userId: req.session.userId, shareToken: req.query.share },
+        {
+          findReceiptByShareToken: token => storage.getReceiptByShareToken(token),
+          userHasReceiptWithImage: (userId, imageUrl) => storage.userHasReceiptWithImage(userId, imageUrl),
+        },
+      );
+      res.set("Cache-Control", "private, no-store");
+      if (decision === "unauthenticated") {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      if (decision !== "allow") {
+        // Same response for "doesn't exist" and "not yours" so paths can't be probed.
+        return res.status(404).json({ error: "Object not found" });
+      }
+
       const { data, error } = await getStorage()
         .from(BUCKET)
-        .createSignedUrl(objectPath, 3600);
+        .createSignedUrl(req.params.objectPath, SIGNED_URL_TTL_SECONDS);
       if (error || !data) {
         return res.status(404).json({ error: "Object not found" });
       }
