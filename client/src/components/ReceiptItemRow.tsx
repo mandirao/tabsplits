@@ -49,7 +49,7 @@ export default function ReceiptItemRow({
         />
       </div>
 
-      <div className="flex-1 flex items-center divide-x min-w-0">
+      <div className="flex-1 flex items-center min-w-0">
         {/* Name + price, edit pencil inline next to the title */}
         <div className="flex-1 px-4 py-3 min-w-0">
           <div className="flex items-center gap-1.5">

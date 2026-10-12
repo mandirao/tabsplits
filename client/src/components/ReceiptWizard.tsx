@@ -16,10 +16,22 @@ import {
   Camera, Upload, Loader2, RotateCw, RotateCcw, Check, ArrowLeft, ArrowRight,
   Sparkles, Users, Plus, X, CheckCircle2, Circle, AlertTriangle,
   Pencil, Trash2, Phone, MinusCircle, UserPlus, Utensils, Layers, Shuffle, ImageIcon,
-  Tag, Salad, UtensilsCrossed, GlassWater, Cake, Share2, Copy, MessageSquare,
+  Share2, Copy, MessageSquare,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
+import ItemEditFields from "@/components/ItemEditFields";
+import { useDeleteReceiptItem, useUpdateReceiptItem } from "@/hooks/useReceiptItemMutations";
 import QRCodeLib from "qrcode";
 import type { Receipt, ReceiptItem, Person } from "@shared/schema";
 import { getItemLineTotal, getPersonItemShare } from "@shared/splitMath";
@@ -95,12 +107,10 @@ export default function ReceiptWizard({ open, onClose, initialReceiptId }: Recei
 
   // Assign step — full item edit sheet
   const [assignEditSheet, setAssignEditSheet] = useState<{ id: string; name: string; quantity: number; price: string; category: string | null } | null>(null);
+  const [assignItemToDelete, setAssignItemToDelete] = useState<string | null>(null);
 
   // Step 6 review
   const [reviewPersonIdx, setReviewPersonIdx] = useState(0);
-  const [reviewEditItem, setReviewEditItem] = useState<ReceiptItem | null>(null);
-  const [reviewEditName, setReviewEditName] = useState("");
-  const [reviewEditPrice, setReviewEditPrice] = useState("");
 
   // Step 5 tip
   const [tipPct, setTipPct] = useState(20);
@@ -445,17 +455,8 @@ export default function ReceiptWizard({ open, onClose, initialReceiptId }: Recei
     }
   };
 
-  const saveAssignEdit = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name: string; quantity: number; price: string; category: string | null } }) =>
-      apiRequest(`/api/items/${id}`, "PATCH", data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/receipts", receiptId, "items"] });
-      setAssignEditSheet(null);
-    },
-    onError: (error: any) => {
-      toast({ title: "Failed to save changes", description: error.message, variant: "destructive" });
-    },
-  });
+  const saveAssignEdit = useUpdateReceiptItem(receiptId);
+  const deleteAssignEditItem = useDeleteReceiptItem(receiptId);
 
   const confirmAssign = async () => {
     if (!assignSheet || assignPeople.length === 0) return;
@@ -1147,7 +1148,7 @@ export default function ReceiptWizard({ open, onClose, initialReceiptId }: Recei
                         }
 
                         return (
-                          <div key={item.id} className="flex items-center divide-x">
+                          <div key={item.id} className="flex items-center">
                             {/* Main: name + price, edit pencil inline next to the title */}
                             <div className="flex-1 py-2 min-w-0">
                               <div className="flex items-center gap-1.5">
@@ -1564,136 +1565,73 @@ export default function ReceiptWizard({ open, onClose, initialReceiptId }: Recei
         onClose={() => setAssignEditSheet(null)}
         title="Edit Item"
         footer={
-          <Button
-            className="w-full h-12"
-            onClick={() => {
-              if (!assignEditSheet) return;
-              saveAssignEdit.mutate({ id: assignEditSheet.id, data: { name: assignEditSheet.name, quantity: assignEditSheet.quantity, price: assignEditSheet.price, category: assignEditSheet.category } });
-            }}
-            disabled={!assignEditSheet?.name || !assignEditSheet?.price || saveAssignEdit.isPending}
-            data-testid="button-save-assign-item-edit"
-          >
-            {saveAssignEdit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
-          </Button>
+          <div className="flex gap-2 w-full">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-destructive flex-shrink-0"
+              onClick={() => {
+                if (assignEditSheet) {
+                  setAssignItemToDelete(assignEditSheet.id);
+                  setAssignEditSheet(null);
+                }
+              }}
+              data-testid="button-delete-assign-item"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={() => {
+                if (!assignEditSheet) return;
+                saveAssignEdit.mutate(
+                  { itemId: assignEditSheet.id, data: { name: assignEditSheet.name, quantity: assignEditSheet.quantity, price: assignEditSheet.price, category: assignEditSheet.category } },
+                  { onSuccess: () => setAssignEditSheet(null) }
+                );
+              }}
+              disabled={!assignEditSheet?.name || !assignEditSheet?.price || saveAssignEdit.isPending}
+              data-testid="button-save-assign-item-edit"
+            >
+              {saveAssignEdit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </div>
         }
       >
         {assignEditSheet && (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="assign-edit-name">Item Name</Label>
-              <Input
-                id="assign-edit-name"
-                value={assignEditSheet.name}
-                onChange={e => setAssignEditSheet(prev => prev ? { ...prev, name: e.target.value } : null)}
-                placeholder="e.g. Caesar Salad"
-                data-testid="input-assign-edit-name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="assign-edit-quantity">Quantity</Label>
-              <Input
-                id="assign-edit-quantity"
-                type="number"
-                min="1"
-                value={assignEditSheet.quantity}
-                onChange={e => setAssignEditSheet(prev => prev ? { ...prev, quantity: parseInt(e.target.value) || 1 } : null)}
-                data-testid="input-assign-edit-quantity"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="assign-edit-price">Price</Label>
-              <Input
-                id="assign-edit-price"
-                type="text"
-                inputMode="decimal"
-                value={assignEditSheet.price}
-                onChange={e => setAssignEditSheet(prev => prev ? { ...prev, price: e.target.value } : null)}
-                placeholder="0.00"
-                data-testid="input-assign-edit-price"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Category</Label>
-              <div className="flex gap-2 flex-wrap">
-                {([
-                  { value: null, label: "None", Icon: Tag },
-                  { value: "appetizer", label: "Appetizer", Icon: Salad },
-                  { value: "meal", label: "Meal", Icon: UtensilsCrossed },
-                  { value: "drink", label: "Drink", Icon: GlassWater },
-                  { value: "dessert", label: "Dessert", Icon: Cake },
-                  { value: "other", label: "Other", Icon: Tag },
-                ] as const).map(({ value, label, Icon }) => {
-                  const selected = (assignEditSheet.category ?? null) === value;
-                  return (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => setAssignEditSheet(prev => prev ? { ...prev, category: value } : null)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm border transition-colors
-                        ${selected
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-background text-muted-foreground border-border hover-elevate"
-                        }`}
-                      data-testid={`button-assign-edit-category-${value ?? "none"}`}
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+          <ItemEditFields
+            value={assignEditSheet}
+            onChange={(v) => setAssignEditSheet(prev => prev ? { ...prev, ...v } : null)}
+            idPrefix="assign-edit"
+            categoryTestidPrefix="assign-edit-category"
+          />
         )}
       </BottomSheet>
 
-      {/* ── Review Step: Item Edit Dialog ── */}
-      <Dialog open={!!reviewEditItem} onOpenChange={open => { if (!open) setReviewEditItem(null); }}>
-        <DialogContent className="max-w-sm mx-auto">
-          <DialogTitle>Edit item</DialogTitle>
-          <div className="space-y-3 pt-1">
-            <div>
-              <label className="text-xs text-muted-foreground font-medium block mb-1">Name</label>
-              <Input value={reviewEditName} onChange={e => setReviewEditName(e.target.value)} data-testid="input-review-edit-name" />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground font-medium block mb-1">Price</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                <Input type="number" step="0.01" value={reviewEditPrice} onChange={e => setReviewEditPrice(e.target.value)} className="pl-6" data-testid="input-review-edit-price" />
-              </div>
-            </div>
-            <div className="flex gap-2 pt-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-destructive flex-shrink-0"
-                onClick={async () => {
-                  if (!reviewEditItem) return;
-                  await apiRequest(`/api/items/${reviewEditItem.id}`, "DELETE");
-                  await queryClient.invalidateQueries({ queryKey: ["/api/receipts", receiptId, "items"] });
-                  setReviewEditItem(null);
-                  toast({ title: "Item deleted" });
-                }}
-                data-testid="button-review-delete-item"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" className="flex-1" onClick={() => setReviewEditItem(null)}>Cancel</Button>
-              <Button className="flex-1" onClick={async () => {
-                if (!reviewEditItem) return;
-                await apiRequest(`/api/items/${reviewEditItem.id}`, "PATCH", {
-                  name: reviewEditName.trim(),
-                  price: reviewEditPrice,
-                });
-                await queryClient.invalidateQueries({ queryKey: ["/api/receipts", receiptId, "items"] });
-                setReviewEditItem(null);
-                toast({ title: "Item updated" });
-              }} data-testid="button-review-edit-save">Save</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <AlertDialog open={assignItemToDelete !== null} onOpenChange={(open) => !open && setAssignItemToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove {assignItemToDelete && items.find(i => i.id === assignItemToDelete)?.name} from this receipt. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-assign-item">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (assignItemToDelete) {
+                  deleteAssignEditItem.mutate(assignItemToDelete);
+                  setAssignItemToDelete(null);
+                }
+              }}
+              data-testid="button-confirm-delete-assign-item"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
     </div>
   );
@@ -1814,7 +1752,7 @@ function ReviewItemsStep({ receiptId, items, receipt, subtotalDiff, fromExisting
         const CAT_ORDER_LOCAL = ["appetizer", "meal", "dessert", "other", "drink", "__none__"] as const;
 
         const renderItemRow = (item: ReceiptItem) => (
-          <div key={item.id} className="flex items-center divide-x">
+          <div key={item.id} className="flex items-center">
             {/* Name + price, edit pencil inline next to the title */}
             <div className="flex-1 min-w-0 px-4 py-3">
               <div className="flex items-center gap-1.5 min-w-0">
@@ -2021,7 +1959,7 @@ function AssignCategorySection({ label, items, assigned, peopleWithColors, getPe
           const nameHasCount = qty > 1 && item.name.startsWith(`${qty} `);
           const drawerLabel = qty > 1 && !nameHasCount ? `${qty}× ${item.name}` : item.name;
           return (
-            <div key={item.id} className="flex items-center divide-x">
+            <div key={item.id} className="flex items-center">
               <div className="flex-1 flex items-center gap-3 px-4 py-2.5 min-w-0">
                 {/* Per-item indicator */}
                 <div className={`h-4 w-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${

@@ -9,10 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Search, UserPlus, Phone, BookUser } from "lucide-react";
 import ReceiptItemRow from "@/components/ReceiptItemRow";
+import ItemEditFields from "@/components/ItemEditFields";
+import { useDeleteReceiptItem, useUpdateReceiptItem } from "@/hooks/useReceiptItemMutations";
 import TipCalculator from "@/components/TipCalculator";
 import BottomSheet from "@/components/BottomSheet";
 import PersonChip from "@/components/PersonChip";
-import { ArrowLeft, Users, Share2, QrCode, MessageSquare, Pencil, Trash2, Plus, AlertTriangle, X, Image as ImageIcon, Copy, Check, PieChart, RefreshCw, Sparkles, UtensilsCrossed, GlassWater, Cake, Tag, Wand2, Salad, ChevronDown } from "lucide-react";
+import { ArrowLeft, Users, Share2, QrCode, MessageSquare, Pencil, Trash2, Plus, AlertTriangle, X, Image as ImageIcon, Copy, Check, PieChart, RefreshCw, Sparkles, Wand2, ChevronDown } from "lucide-react";
 import logoUrl from "@assets/icon-1024_1775014486817.png";
 import {
   AlertDialog,
@@ -376,6 +378,7 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
   const [selectedPeople, setSelectedPeople] = useState<string[]>([]);
   const [assignedQuantities, setAssignedQuantities] = useState<Record<string, number>>({});
   const [editItemData, setEditItemData] = useState<{ name: string; quantity: number; price: string; category?: string | null }>({ name: "", quantity: 1, price: "", category: null });
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [shareBottomSheetOpen, setShareBottomSheetOpen] = useState(false);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
   const [urlCopied, setUrlCopied] = useState(false);
@@ -647,23 +650,7 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
     }
   });
 
-  const updateItemDetailsMutation = useMutation({
-    mutationFn: async ({ itemId, data }: { itemId: string; data: { name: string; quantity: number; price: string; category?: string | null } }) => {
-      return await apiRequest(`/api/items/${itemId}`, "PATCH", data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/receipts", receiptId, "items"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/receipts", receiptId] });
-      toast({ title: "Item updated" });
-    },
-    onError: (error: any) => {
-      toast({ 
-        title: "Failed to update item", 
-        description: error.message,
-        variant: "destructive" 
-      });
-    }
-  });
+  const updateItemDetailsMutation = useUpdateReceiptItem(receiptId);
 
   const deletePersonMutation = useMutation({
     mutationFn: async (personId: string) => {
@@ -737,22 +724,7 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
     }
   });
 
-  const deleteItemMutation = useMutation({
-    mutationFn: async (itemId: string) => {
-      return await apiRequest(`/api/items/${itemId}`, "DELETE");
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/receipts", receiptId, "items"] });
-      toast({ title: "Item deleted" });
-    },
-    onError: (error: any) => {
-      toast({ 
-        title: "Failed to delete item", 
-        description: error.message,
-        variant: "destructive" 
-      });
-    }
-  });
+  const deleteItemMutation = useDeleteReceiptItem(receiptId);
 
   const bulkAssignMutation = useMutation({
     mutationFn: async ({ itemIds, assignedTo, assignedQuantities }: { itemIds: string[]; assignedTo: string[]; assignedQuantities: Record<string, number> }) => {
@@ -961,8 +933,11 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
     });
   };
 
-  const handleDeleteItem = (itemId: string) => {
-    deleteItemMutation.mutate(itemId);
+  const confirmDeleteItem = () => {
+    if (itemToDelete) {
+      deleteItemMutation.mutate(itemToDelete);
+      setItemToDelete(null);
+    }
   };
 
   const togglePersonSelection = (personId: string) => {
@@ -1364,28 +1339,20 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
                   </div>
                 );
               })}
-              <button
-                type="button"
-                onClick={() => setAddItemBottomSheetOpen(true)}
-                className="w-full flex items-center gap-2 px-4 py-3 text-muted-foreground hover-elevate active-elevate-2 border-t"
-                data-testid="button-add-item"
-              >
-                <Plus className="h-4 w-4" />
-                <span className="text-sm font-medium">Add Item</span>
-              </button>
+              <div className="p-4">
+                <Button variant="outline" className="w-full" onClick={() => setAddItemBottomSheetOpen(true)} data-testid="button-add-item">
+                  <Plus className="h-4 w-4 mr-2" /> Add missing item
+                </Button>
+              </div>
               </>
             ) : (
               <>
                 {filteredItems.map(renderItemRow)}
-                <button
-                  type="button"
-                  onClick={() => setAddItemBottomSheetOpen(true)}
-                  className="w-full flex items-center gap-2 px-4 py-3 text-muted-foreground hover-elevate active-elevate-2"
-                  data-testid="button-add-item"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span className="text-sm font-medium">Add Item</span>
-                </button>
+                <div className="p-4">
+                  <Button variant="outline" className="w-full" onClick={() => setAddItemBottomSheetOpen(true)} data-testid="button-add-item">
+                    <Plus className="h-4 w-4 mr-2" /> Add missing item
+                  </Button>
+                </div>
               </>
             )}
           </CardContent>
@@ -1626,9 +1593,8 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
               className="text-destructive flex-shrink-0"
               onClick={() => {
                 if (selectedItemId) {
-                  handleDeleteItem(selectedItemId);
+                  setItemToDelete(selectedItemId);
                   setEditBottomSheetOpen(false);
-                  setEditItemData({ name: "", quantity: 1, price: "" });
                 }
               }}
               data-testid="button-delete-item"
@@ -1646,74 +1612,34 @@ export default function ReceiptDetailPage({ params }: { params: { id: string } }
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="item-name">Item Name</Label>
-            <Input
-              id="item-name"
-              type="text"
-              value={editItemData.name}
-              onChange={(e) => setEditItemData(prev => ({ ...prev, name: e.target.value }))}
-              placeholder="e.g. Caesar Salad"
-              data-testid="input-edit-item-name"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="item-quantity">Quantity</Label>
-            <Input
-              id="item-quantity"
-              type="number"
-              min="1"
-              value={editItemData.quantity}
-              onChange={(e) => setEditItemData(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
-              data-testid="input-edit-item-quantity"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="item-price">Price</Label>
-            <Input
-              id="item-price"
-              type="text"
-              inputMode="decimal"
-              value={editItemData.price}
-              onChange={(e) => setEditItemData(prev => ({ ...prev, price: e.target.value }))}
-              placeholder="0.00"
-              data-testid="input-edit-item-price"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Category</Label>
-            <div className="flex gap-2 flex-wrap">
-              {([
-                { value: null, label: "None", Icon: Tag },
-                { value: "appetizer", label: "Appetizer", Icon: Salad },
-                { value: "meal", label: "Meal", Icon: UtensilsCrossed },
-                { value: "drink", label: "Drink", Icon: GlassWater },
-                { value: "dessert", label: "Dessert", Icon: Cake },
-                { value: "other", label: "Other", Icon: Tag },
-              ] as const).map(({ value, label, Icon }) => {
-                const selected = (editItemData.category ?? null) === value;
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => setEditItemData(prev => ({ ...prev, category: value }))}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm border transition-colors
-                      ${selected
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background text-muted-foreground border-border hover-elevate"
-                      }`}
-                    data-testid={`button-category-${value ?? "none"}`}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+        <ItemEditFields
+          value={editItemData}
+          onChange={setEditItemData}
+          idPrefix="edit-item"
+          categoryTestidPrefix="category"
+        />
       </BottomSheet>
+
+      <AlertDialog open={itemToDelete !== null} onOpenChange={(open) => !open && setItemToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove {itemToDelete && items.find(i => i.id === itemToDelete)?.name} from this receipt. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-item">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteItem}
+              data-testid="button-confirm-delete-item"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
 
       <BottomSheet

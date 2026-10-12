@@ -1,3 +1,6 @@
+import type { LucideIcon } from "lucide-react";
+import { Tag, Salad, UtensilsCrossed, GlassWater, Cake } from "lucide-react";
+
 export const PERSON_COLORS = [
   'hsl(38, 92%, 50%)',   // Amber
   'hsl(17, 81%, 53%)',   // Coral
@@ -36,6 +39,15 @@ export const CAT_LABELS_SHORT: Record<string, string> = {
 export const CATEGORY_ORDER = ["appetizer", "meal", "dessert", "other", "drink"] as const;
 
 export type CategoryKey = typeof CATEGORY_ORDER[number];
+
+export const CATEGORY_PICKER_OPTIONS: { value: CategoryKey | null; label: string; Icon: LucideIcon }[] = [
+  { value: null, label: "None", Icon: Tag },
+  { value: "appetizer", label: "Appetizer", Icon: Salad },
+  { value: "meal", label: "Meal", Icon: UtensilsCrossed },
+  { value: "drink", label: "Drink", Icon: GlassWater },
+  { value: "dessert", label: "Dessert", Icon: Cake },
+  { value: "other", label: "Other", Icon: Tag },
+];
 
 export function getInitials(name: string): string {
   return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
