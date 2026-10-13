@@ -152,6 +152,8 @@ Secrets are never committed: `.env` is git-ignored, and deployed values live in 
 
 ### Local setup
 
+Returning after a break? Start with [`DEVELOPMENT.md`](DEVELOPMENT.md): branch-first workflow, no-database vs. dev-database paths, and how to recreate the isolated dev environment. **Pushing to `main` deploys to production.**
+
 ```sh
 npm install
 cp .env.example .env   # fill in DEVELOPMENT values (see docs/environments.md), never production
