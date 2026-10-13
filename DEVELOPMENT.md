@@ -3,7 +3,7 @@
 How to pick Tab-Splits back up after a break, in a person's or a Claude Code session, without touching production.
 
 > [!WARNING]
-> **A push to `main` deploys to production.** Vercel's GitHub integration deploys every push to `main` of `mandirao/tabsplits` to www.tabsplits.com, even a docs-only change. Never commit directly to `main`. Work on a branch, and merge only when you've decided to ship.
+> **Merging to `main` deploys to production.** Vercel's GitHub integration deploys every change to `main` of `mandirao/tabsplits` to www.tabsplits.com, even a docs-only change. Branch protection rejects direct pushes to `main`, so changes arrive by pull request: work on a branch, and merge only when you've decided to ship.
 
 ## Ground rules
 
@@ -54,9 +54,9 @@ The app server needs a real Postgres plus Supabase Storage. Use an **isolated de
    ```
 6. **Run it.** `PORT=5055 npm run dev`, then open http://localhost:5055. Port 5000 is taken by macOS AirPlay. Sign up with a throwaway `@example.com` account and scan `demo-receipt.png`.
 
-**Preview deployments** (every non-`main` branch push) use Vercel's *Preview* environment variables. Point them at the current dev project whenever you recreate it, and leave *Production* alone. If the dev project is deleted, Preview builds still succeed but the app can't reach a database. That's harmless, and it can't touch production.
+**Preview deployments** (every non-`main` branch push) use Vercel's *Preview* environment variables. **Current state (since 2026-10-13):** no dev project exists, and Preview's `DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` are unset. Preview builds still run, but the app won't start ("DATABASE_URL must be set"). It never falls back to production. After recreating dev, add those three to the **Preview** target only, and leave *Production* alone. Local `.env` likewise has these blank, so `npm run dev` refuses to start until they're filled in.
 
-**When you're done:** delete `tabsplits-dev` (dashboard → Project Settings → General) to stop billing. Nothing in it is worth keeping.
+**When you're done:** delete `tabsplits-dev` (dashboard → Project Settings → General) to stop billing, blank the three dev values in `.env`, and remove the three Preview variables (`vercel env rm <NAME> preview`). Nothing in the dev project is worth keeping.
 
 ## 3. Verify before merging
 
@@ -67,7 +67,7 @@ The app server needs a real Postgres plus Supabase Storage. Use an **isolated de
 ## 4. Ship (only when ready)
 
 1. **Back up production first** if the change touches data or the schema (see [`docs/environments.md`](docs/environments.md)).
-2. Merge the branch into `main` (a PR on GitHub, or locally then `git push origin main`). **This deploys to production.**
+2. Open a pull request and merge it into `main` (`gh pr create`, then `gh pr merge`). **This deploys to production.**
 3. Smoke-check www.tabsplits.com: the site loads, sign-in works, an existing share link opens, and its receipt photo opens through the link.
 4. If anything is wrong, roll back in Vercel (Deployments → previous production deployment → Promote / Instant Rollback, or `vercel rollback`), then investigate on a branch.
 
