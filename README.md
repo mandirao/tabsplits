@@ -35,12 +35,26 @@ Tab-Splits serves two different people with two distinct experiences. The organi
 4. **Pay in Venmo.** If the person who paid has added a Venmo handle, a button opens Venmo with the recipient, amount, and note prefilled. The guest confirms the payment in Venmo; Tab-Splits doesn't move money.
 5. **Start your own.** A "Split your own tabs for free" link at the bottom of every tab invites guests to organize their own.
 
-<!-- SCREENSHOTS: see docs/screenshots/README.md. Once captured, insert here in flow order:
-![Organizer, Verify: AI-extracted items beside the receipt photo](docs/screenshots/1-verify.png)
-![Organizer, Assign: "Who had a…?" with an unequal split](docs/screenshots/2-assign.png)
-![Guest, pick your name: personalizes the view, no login](docs/screenshots/3-guest-name.png)
-![Guest, your tab: items, tax and tip share, total, and the Venmo handoff](docs/screenshots/4-guest-tab.png)
--->
+<table>
+  <tr>
+    <td colspan="2"><b>Organizer</b>: AI-extracted items, checked against the receipt photo</td>
+    <td><b>Organizer</b>: an unequal split</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/1-verify.png" width="440" alt="Verify step: AI-extracted, auto-categorized items beside the receipt photo"></td>
+    <td><img src="docs/screenshots/2-assign.png" width="210" alt="Assign step: three margaritas split 2:1 between Priya and Marcus"></td>
+  </tr>
+  <tr>
+    <td><b>Guest</b>: pick your name</td>
+    <td colspan="2"><b>Guest</b>: your itemized tab and the Venmo handoff</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/3-guest-name.png" width="210" alt="Guest name picker: personalizes the view, no login"></td>
+    <td colspan="2"><img src="docs/screenshots/4-guest-tab.png" width="210" alt="Guest tab: items with fractional shares, tax, tip, total, and a Pay on Venmo button"></td>
+  </tr>
+</table>
+
+<sub>Screenshots use a synthetic receipt and fictional diners on a development database.</sub>
 
 ## Real-world use
 

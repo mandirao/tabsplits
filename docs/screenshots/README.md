@@ -1,5 +1,7 @@
 # Demo screenshots: capture checklist
 
+Captured on 2026-10-13 against the development database. `1-verify.png` combines two captures of the same step (item list, then the receipt photo). Repeat this checklist to refresh them.
+
 Four screenshots of the real app (two organizer screens, two guest screens), captured against the **development** environment (see [`../environments.md`](../environments.md)). Never capture from production or show real diners, receipts, or contact details.
 
 ## Demo data
@@ -35,4 +37,4 @@ Four screenshots of the real app (two organizer screens, two guest screens), cap
 
 - Check every image for real names, numbers, emails, or other tabs and notifications. Crop the browser chrome.
 - Keep each file under about 400 KB (`pngquant` or macOS Preview export).
-- In the root `README.md`, replace the `<!-- SCREENSHOTS … -->` comment with the four image lines it contains.
+- The root `README.md` embeds these four files in flow order.
